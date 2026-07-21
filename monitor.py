@@ -28,7 +28,7 @@ STATE_FILE = "state.json"
 SITES = [
     {
         "name": "KEA / KCET",
-        "url": "https://kea.kar.nic.in/",
+        "url": "https://cetonline.karnataka.gov.in/kea/",
     },
     {
         "name": "COMEDK",
@@ -48,9 +48,21 @@ SKIP_HREF_PREFIXES = ("javascript:", "#", "mailto:", "tel:")
 
 
 def fetch_links(url: str) -> set[str]:
-    """Return a set of 'link text || full url' strings for every real link on the page."""
-    resp = requests.get(url, headers=HEADERS, timeout=30)
-    resp.raise_for_status()
+    """Return a set of 'link text || full url' strings for every real link on the page.
+    Retries once on failure, since some government sites are flaky/slow."""
+    last_error = None
+    for attempt in range(2):
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=45)
+            resp.raise_for_status()
+            break
+        except Exception as e:
+            last_error = e
+            if attempt == 0:
+                print(f"[INFO] First attempt failed for {url}, retrying once...")
+                continue
+            raise last_error
+
     soup = BeautifulSoup(resp.text, "html.parser")
 
     links = set()
