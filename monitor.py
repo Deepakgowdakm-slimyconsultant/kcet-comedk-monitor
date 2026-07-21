@@ -28,7 +28,10 @@ STATE_FILE = "state.json"
 SITES = [
     {
         "name": "KEA / KCET",
-        "url": "https://cetonline.karnataka.gov.in/kea/",
+        "url": "https://engineering.careers360.com/articles/kcet-latest-news-and-updates",
+        # Only count links pointing to actual KCET news articles (filters out
+        # the huge amount of unrelated navigation menu links on this page).
+        "href_must_contain": ["news.careers360.com", "kcet"],
     },
     {
         "name": "COMEDK",
@@ -47,9 +50,11 @@ HEADERS = {
 SKIP_HREF_PREFIXES = ("javascript:", "#", "mailto:", "tel:")
 
 
-def fetch_links(url: str) -> set[str]:
+def fetch_links(url: str, href_must_contain=None) -> set[str]:
     """Return a set of 'link text || full url' strings for every real link on the page.
-    Retries once on failure, since some government sites are flaky/slow."""
+    Retries once on failure, since some sites are flaky/slow.
+    If href_must_contain is given, only links whose full URL contains ALL of
+    those substrings (case-insensitive) are kept."""
     last_error = None
     for attempt in range(2):
         try:
@@ -74,6 +79,10 @@ def fetch_links(url: str) -> set[str]:
         if href.startswith(SKIP_HREF_PREFIXES):
             continue
         full_url = urljoin(url, href)
+        if href_must_contain:
+            lowered = full_url.lower()
+            if not all(sub in lowered for sub in href_must_contain):
+                continue
         links.add(f"{text} || {full_url}")
     return links
 
@@ -113,8 +122,9 @@ def main() -> None:
 
     for site in SITES:
         name, url = site["name"], site["url"]
+        href_filter = site.get("href_must_contain")
         try:
-            current_links = fetch_links(url)
+            current_links = fetch_links(url, href_must_contain=href_filter)
         except Exception as e:
             print(f"[WARN] Could not fetch {name} ({url}): {e}")
             continue
