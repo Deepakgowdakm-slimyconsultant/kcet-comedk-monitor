@@ -2,7 +2,7 @@ name: KCET & COMEDK Monitor
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 minutes
+   - cron: "*/10 * * * *"   # every 10 minutes (requesting more often since GitHub skips/delays many)
   workflow_dispatch: {}       # lets you click "Run workflow" manually to test
 
 permissions:
