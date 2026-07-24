@@ -120,7 +120,17 @@ def chars_to_text(chars_list):
     parts = []
     for line in lines:
         line_sorted = sorted(line, key=lambda c: c["x0"])
-        parts.append("".join(c["text"] for c in line_sorted))
+        buf = []
+        prev_x1 = None
+        for c in line_sorted:
+            # Some layout gaps (e.g. between a college's list index and its
+            # code, "1" then "E001") have no literal space character, only a
+            # positional gap - insert one so words don't fuse together.
+            if prev_x1 is not None and c["x0"] - prev_x1 > 1.5:
+                buf.append(" ")
+            buf.append(c["text"])
+            prev_x1 = c["x1"]
+        parts.append("".join(buf))
     return " ".join(" ".join(parts).split())
 
 
