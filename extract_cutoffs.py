@@ -97,10 +97,15 @@ def is_boilerplate(text):
     return any(p.search(text) for p in BOILERPLATE_PATTERNS)
 
 
-def chars_to_text(chars_list):
+def chars_to_text(chars_list, line_join=" "):
     """Join a bag of chars into text, grouping by physical line (top) first
     so that two visually stacked lines captured inside the same grid cell
-    (e.g. a wrapped branch name) don't get interleaved by a flat x0 sort."""
+    (e.g. a wrapped branch name, or a fractional cutoff rank too wide for
+    its column) don't get interleaved by a flat x0 sort. line_join is the
+    separator placed between wrapped lines: a space for name/address text
+    ("Artificial" + "Intelligence" -> "Artificial Intelligence"), but ""
+    for numeric cells where a long value like "16234.9375" wraps onto a
+    second line ("16234.93" / "75") and must NOT gain a space when rejoined."""
     if not chars_list:
         return ""
     ordered = sorted(chars_list, key=lambda c: (c["top"], c["x0"]))
@@ -131,7 +136,7 @@ def chars_to_text(chars_list):
             buf.append(c["text"])
             prev_x1 = c["x1"]
         parts.append("".join(buf))
-    return " ".join(" ".join(parts).split())
+    return " ".join(line_join.join(parts).split())
 
 
 def cluster_row_bands(rects):
@@ -208,7 +213,7 @@ def extract_page_rows(page, page_no, source_file, errors):
         for (x0, x1) in value_cells:
             xmid_lo, xmid_hi = x0 - 0.6, x1 + 0.6
             sel = [c for c in cell_chars if xmid_lo <= (c["x0"] + c["x1"]) / 2 < xmid_hi]
-            cells_text.append(chars_to_text(sel))
+            cells_text.append(chars_to_text(sel, line_join=""))
 
         events.append({"top": band["top"], "kind": "grid_row", "cells_text": cells_text})
 
