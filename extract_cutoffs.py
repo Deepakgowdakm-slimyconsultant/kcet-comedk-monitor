@@ -97,6 +97,33 @@ def is_boilerplate(text):
     return any(p.search(text) for p in BOILERPLATE_PATTERNS)
 
 
+def chars_to_text(chars_list):
+    """Join a bag of chars into text, grouping by physical line (top) first
+    so that two visually stacked lines captured inside the same grid cell
+    (e.g. a wrapped branch name) don't get interleaved by a flat x0 sort."""
+    if not chars_list:
+        return ""
+    ordered = sorted(chars_list, key=lambda c: (c["top"], c["x0"]))
+    lines = []
+    cur_top = None
+    cur = []
+    for c in ordered:
+        if cur_top is None or abs(c["top"] - cur_top) > 2.0:
+            if cur:
+                lines.append(cur)
+            cur = [c]
+            cur_top = c["top"]
+        else:
+            cur.append(c)
+    if cur:
+        lines.append(cur)
+    parts = []
+    for line in lines:
+        line_sorted = sorted(line, key=lambda c: c["x0"])
+        parts.append("".join(c["text"] for c in line_sorted))
+    return " ".join(" ".join(parts).split())
+
+
 def cluster_row_bands(rects):
     """Group grid rects into rows keyed by (top, bottom), each row holding
     its sorted, deduped list of (x0, x1) cell boundaries."""
@@ -137,7 +164,7 @@ def extract_page_rows(page, page_no, source_file, errors):
     chars_by_band = defaultdict(list)
     free_chars = []
     for c in chars:
-        if not c["text"].strip():
+        if c["text"] == "":
             continue
         bi = band_index_for_char(c)
         if bi is None:
@@ -165,15 +192,13 @@ def extract_page_rows(page, page_no, source_file, errors):
         name_region_end_x = value_cells[0][0]
 
         name_chars = [c for c in cell_chars if c["x0"] < name_region_end_x - 0.6]
-        name_chars.sort(key=lambda c: c["x0"])
-        name_text = "".join(c["text"] for c in name_chars).strip()
+        name_text = chars_to_text(name_chars)
 
         cells_text = [name_text]
         for (x0, x1) in value_cells:
             xmid_lo, xmid_hi = x0 - 0.6, x1 + 0.6
             sel = [c for c in cell_chars if xmid_lo <= (c["x0"] + c["x1"]) / 2 < xmid_hi]
-            sel.sort(key=lambda c: c["x0"])
-            cells_text.append("".join(c["text"] for c in sel).strip())
+            cells_text.append(chars_to_text(sel))
 
         events.append({"top": band["top"], "kind": "grid_row", "cells_text": cells_text})
 
@@ -194,20 +219,7 @@ def extract_page_rows(page, page_no, source_file, errors):
         line_groups.append(cur)
 
     for grp in line_groups:
-        grp.sort(key=lambda c: c["x0"])
-        parts = []
-        prev_x1 = None
-        buf = ""
-        for c in grp:
-            if prev_x1 is not None and c["x0"] - prev_x1 > 1.5:
-                parts.append(buf)
-                buf = ""
-            buf += c["text"]
-            prev_x1 = c["x1"]
-        if buf:
-            parts.append(buf)
-        text = " ".join(p.strip() for p in parts if p.strip())
-        text = " ".join(text.split())
+        text = chars_to_text(grp)
         if text:
             events.append({"top": min(c["top"] for c in grp), "kind": "free_text", "text": text})
 
@@ -223,6 +235,7 @@ def process_file(path, meta, writer, errors, sample_rows):
         current_college_name = None
         current_category_order = None  # list of 24 codes, left-to-right
         pending_row = None  # dict for the data row currently accepting name continuation
+        college_header_open = False  # True between a college-header line and the next grid row
 
         def flush_pending():
             nonlocal row_count
@@ -298,11 +311,13 @@ def process_file(path, meta, writer, errors, sample_rows):
                     if is_header:
                         flush_pending()
                         pending_row = None
+                        college_header_open = False
                         current_category_order = rank_cells
                         continue
 
                     # data row
                     flush_pending()
+                    college_header_open = False
                     m = BRANCH_CODE_RE.match(name_cell)
                     if m:
                         code, name_first = m.group(1), m.group(2)
@@ -325,9 +340,13 @@ def process_file(path, meta, writer, errors, sample_rows):
                         code, name = (m_old or m_new).groups()
                         current_college_code = code.strip()
                         current_college_name = name.strip()
+                        college_header_open = True
                         continue
-                    # otherwise: continuation of the current branch name
-                    if pending_row is not None:
+                    # otherwise: continuation of either the college address
+                    # (right after a college header) or the current branch name
+                    if college_header_open:
+                        current_college_name = (current_college_name + " " + text).strip()
+                    elif pending_row is not None:
                         pending_row["name_parts"].append(text)
                     else:
                         errors.append(
